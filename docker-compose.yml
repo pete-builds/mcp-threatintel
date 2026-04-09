@@ -3,7 +3,8 @@ services:
     build: .
     container_name: mcp-threatintel
     restart: unless-stopped
-    network_mode: host
+    ports:
+      - "${FASTMCP_PORT:-3707}:3707"
     env_file:
       - .env
     environment:
@@ -12,19 +13,25 @@ services:
       - TZ=${TZ:-America/New_York}
     volumes:
       - threatintel-data:/data
+    networks:
+      - threatintel-net
 
   threatintel-poller:
     build: .
     container_name: threatintel-poller
     restart: unless-stopped
-    network_mode: host
     env_file:
       - .env
     environment:
       - TZ=${TZ:-America/New_York}
     volumes:
       - threatintel-data:/data
+    networks:
+      - threatintel-net
     entrypoint: ["python", "-u", "poller.py", "--loop", "--interval", "3600"]
 
 volumes:
   threatintel-data:
+
+networks:
+  threatintel-net:

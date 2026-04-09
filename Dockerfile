@@ -1,9 +1,15 @@
-FROM python:3.13-slim
+FROM python:3.13-slim AS builder
 
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+FROM python:3.13-slim
+
+WORKDIR /app
+
+COPY --from=builder /install /usr/local
 
 COPY clients/ ./clients/
 COPY server.py .
