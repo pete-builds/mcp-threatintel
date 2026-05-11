@@ -370,9 +370,10 @@ async def get_latest_breach() -> str:
 
 if __name__ == "__main__":
     host = os.getenv("FASTMCP_HOST", os.getenv("MCP_HOST", "0.0.0.0"))
-    port = os.getenv("FASTMCP_PORT", os.getenv("MCP_PORT", "3707"))
-    # FastMCP 3.1.0 reads FASTMCP_HOST/FASTMCP_PORT env vars
+    port = int(os.getenv("FASTMCP_PORT", os.getenv("MCP_PORT", "3707")))
+    # Pass host/port as kwargs (most explicit). Mirror into FASTMCP_*
+    # env vars too in case any nested code path reads them directly.
     os.environ["FASTMCP_HOST"] = host
     os.environ["FASTMCP_PORT"] = str(port)
     print(f"Starting MCP ThreatIntel on {host}:{port} (Streamable HTTP transport)")
-    mcp.run(transport="streamable-http")
+    mcp.run(transport="streamable-http", host=host, port=port)
