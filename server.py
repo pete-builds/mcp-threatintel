@@ -2,7 +2,7 @@
 
 Provides Claude Code tools for IOC lookups, threat search, CVE checks,
 OTX pulse search, and LeakCheck breach lookups via the Model Context
-Protocol (SSE transport).
+Protocol (Streamable HTTP transport).
 
 Reads from a local SQLite cache populated by poller.py, with live API
 fallback for LeakCheck (on-demand) and OTX (enrichment).
@@ -374,5 +374,5 @@ if __name__ == "__main__":
     # FastMCP 3.1.0 reads FASTMCP_HOST/FASTMCP_PORT env vars
     os.environ["FASTMCP_HOST"] = host
     os.environ["FASTMCP_PORT"] = str(port)
-    print(f"Starting MCP ThreatIntel on {host}:{port} (SSE transport)")
-    mcp.run(transport="sse")
+    print(f"Starting MCP ThreatIntel on {host}:{port} (Streamable HTTP transport)")
+    mcp.run(transport="streamable-http")

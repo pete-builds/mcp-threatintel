@@ -46,7 +46,7 @@ All optional keys degrade gracefully. The server runs fine without them and retu
 ```
 Claude Code
     |
-    | SSE (port 3707)
+    | Streamable HTTP (port 3707, /mcp)
     v
 mcp-threatintel (server.py)
     |
@@ -91,14 +91,20 @@ The poller will do an initial sync on first start. Give it a minute before the t
 
 ### 3. Connect to Claude Code
 
-Add to your Claude Code `settings.json`:
+Register the MCP server with the Claude CLI:
+
+```bash
+claude mcp add threatintel --transport http --scope user --url http://localhost:3707/mcp
+```
+
+Or add to your Claude Code `settings.json`:
 
 ```json
 {
   "mcpServers": {
     "threatintel": {
-      "type": "sse",
-      "url": "http://localhost:3707/sse"
+      "type": "http",
+      "url": "http://localhost:3707/mcp"
     }
   }
 }
