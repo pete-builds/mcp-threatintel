@@ -48,12 +48,12 @@ Claude Code
     |
     | Streamable HTTP (port 3707, /mcp)
     v
-mcp-threatintel (server.py)
+mcp-threatintel (mcp_threatintel.server)
     |
     |-- SQLite cache (threatintel.db)  <-- populated by poller
     |-- Live API calls (LeakCheck, HIBP, Ahmia)
     v
-threatintel-poller (poller.py)
+threatintel-poller (mcp_threatintel.poller)
     |
     |-- abuse.ch feeds (URLhaus, MalwareBazaar, ThreatFox, Feodo)
     |-- AlienVault OTX pulses
@@ -133,6 +133,7 @@ LEAKCHECK_API_KEY # $10/mo at https://leakcheck.io/
 ## Notes
 
 - `docker-compose.yml` uses `network_mode: host`. The MCP server binds to `0.0.0.0:3707`. If you're running this on a server (not just localhost), add a firewall rule to restrict access.
+- Optional bearer-token auth: set `MCP_THREATINTEL_AUTH_TOKEN` (generate with `openssl rand -hex 32`) and every HTTP client must send `Authorization: Bearer <token>`. Unset = no auth (single-host trusted-boundary default).
 - The SQLite database is stored in a named Docker volume (`threatintel-data`). It persists across container restarts.
 - LeakCheck results redact most of the exposed password value. Only the first and last two characters are shown.
 - HIBP password checks use k-anonymity: only the first 5 characters of the SHA-1 hash are sent to the API. The full password never leaves the machine.

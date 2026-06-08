@@ -28,7 +28,7 @@ services:
       - threatintel-data:/data
     networks:
       - threatintel-net
-    entrypoint: ["python", "-u", "poller.py", "--loop", "--interval", "3600"]
+    entrypoint: ["mcp-threatintel-poller", "--loop", "--interval", "3600"]
 
 volumes:
   threatintel-data:

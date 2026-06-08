@@ -1,0 +1,66 @@
+[build-system]
+requires = ["hatchling>=1.30.1"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcp-threatintel"
+version = "0.2.0"
+description = "MCP server for threat intelligence: IOC lookups, full-text threat search, CISA KEV CVE checks, AlienVault OTX pulses, HIBP/LeakCheck breach lookups, and Ahmia dark-web search over a local SQLite cache."
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Pete Stergion", email = "pstergion@gmail.com" }]
+requires-python = ">=3.11"
+keywords = ["mcp", "threat-intelligence", "ioc", "cve", "otx", "cisa-kev", "claude", "security"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "fastmcp>=3.4.0",
+    "httpx>=0.28.1",
+    "uvicorn>=0.49.0",
+    "python-dotenv>=1.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "build>=1.5.0",
+    "twine>=6.2.0",
+    "ruff>=0.9.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+]
+
+[project.scripts]
+mcp-threatintel = "mcp_threatintel.server:main"
+mcp-threatintel-poller = "mcp_threatintel.poller:main"
+
+[project.urls]
+Homepage = "https://github.com/pete-builds/mcp-threatintel"
+Repository = "https://github.com/pete-builds/mcp-threatintel"
+Issues = "https://github.com/pete-builds/mcp-threatintel/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_threatintel"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/README.md",
+    "/LICENSE",
+    "/.env.example",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

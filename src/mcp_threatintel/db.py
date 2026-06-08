@@ -4,19 +4,53 @@ Handles schema initialization, WAL mode, and provides upsert/query helpers
 for IOCs, OTX pulses, CISA vulnerabilities, and feed sync tracking.
 """
 
-import json
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
 
-def init_db(path: str) -> sqlite3.Connection:
-    """Initialize the database with schema and WAL mode."""
-    conn = sqlite3.connect(path)
+def _configure(conn: sqlite3.Connection) -> None:
+    """Apply the standard per-connection configuration (WAL, busy_timeout, rows)."""
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=5000")
+
+
+def init_db(path: str) -> sqlite3.Connection:
+    """Open a connection, ensure the schema exists, and return the connection.
+
+    Used by the poller, which owns a single connection for the lifetime of one
+    poll cycle (single-threaded). The MCP server should call this once at
+    startup to create the schema, then use :func:`connect` per request rather
+    than sharing this connection across threads.
+    """
+    conn = sqlite3.connect(path)
+    _configure(conn)
     conn.executescript(SCHEMA)
     return conn
+
+
+@contextmanager
+def connect(path: str):
+    """Open a short-lived, per-call SQLite connection as a context manager.
+
+    Each MCP tool call opens its own connection and closes it on exit, so no
+    sqlite3 connection is ever shared across threads (sqlite3 connections are
+    not thread-safe by default, and FastMCP may dispatch tool calls on a
+    threadpool). WAL mode and busy_timeout are reapplied per connection.
+
+    Assumes the schema already exists (call :func:`init_db` once at startup).
+
+    Example:
+        with connect("/data/threatintel.db") as conn:
+            rows = lookup_indicator(conn, "1.2.3.4")
+    """
+    conn = sqlite3.connect(path)
+    _configure(conn)
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 SCHEMA = """
