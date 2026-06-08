@@ -12,18 +12,16 @@ Usage:
 
 import argparse
 import asyncio
-import json
 import logging
 import os
-import sys
 import time
 
 from dotenv import load_dotenv
 
-from clients.abusech import URLhausClient, MalwareBazaarClient, ThreatFoxClient, FeodoClient
-from clients.otx import OtxClient
-from clients.cisa import CisaClient
-from db import init_db, upsert_ioc, upsert_pulse, upsert_pulse_indicator, upsert_vulnerability, update_feed_sync, rebuild_fts
+from mcp_threatintel.clients.abusech import URLhausClient, MalwareBazaarClient, ThreatFoxClient, FeodoClient
+from mcp_threatintel.clients.otx import OtxClient
+from mcp_threatintel.clients.cisa import CisaClient
+from mcp_threatintel.db import init_db, upsert_ioc, upsert_pulse, upsert_pulse_indicator, upsert_vulnerability, update_feed_sync, rebuild_fts
 
 load_dotenv()
 

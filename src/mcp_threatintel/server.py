@@ -15,12 +15,14 @@ import sys
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP
+from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
 
-from clients.ahmia import AhmiaClient
-from clients.hibp import HibpClient
-from clients.leakcheck import LeakCheckClient
-from clients.otx import OtxClient
-from db import (
+from mcp_threatintel.clients.ahmia import AhmiaClient
+from mcp_threatintel.clients.hibp import HibpClient
+from mcp_threatintel.clients.leakcheck import LeakCheckClient
+from mcp_threatintel.clients.otx import OtxClient
+from mcp_threatintel.db import (
+    connect,
     init_db,
     lookup_indicator,
     lookup_indicator_in_pulses,
@@ -42,12 +44,17 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
+logger = logging.getLogger("threatintel.server")
+
 DB_PATH = os.getenv("DB_PATH", "/data/threatintel.db")
 
 if not os.path.exists(DB_PATH):
     print(f"WARNING: Database not found at {DB_PATH}. Poller may not have run yet.", file=sys.stderr)
 
-conn = init_db(DB_PATH)
+# Create the schema once at startup, then close. Every tool call opens its own
+# short-lived connection via db.connect() so no sqlite3 connection is shared
+# across FastMCP's worker threads.
+init_db(DB_PATH).close()
 
 # Optional clients (may not have API keys)
 _leakcheck = None
@@ -61,7 +68,29 @@ if os.getenv("LEAKCHECK_API_KEY"):
 if os.getenv("OTX_API_KEY"):
     _otx = OtxClient(os.getenv("OTX_API_KEY"))
 
-mcp = FastMCP("ThreatIntel")
+
+def _build_auth_provider() -> StaticTokenVerifier | None:
+    """Build an optional bearer-token auth provider, env-gated.
+
+    If ``MCP_THREATINTEL_AUTH_TOKEN`` is set, the HTTP transport requires that
+    token as a bearer credential. If unset, no auth is wired (the single-host
+    trusted-boundary default, and the only sane option for stdio). Generate a
+    token with ``openssl rand -hex 32``.
+    """
+    token = os.getenv("MCP_THREATINTEL_AUTH_TOKEN", "").strip()
+    if not token:
+        logger.warning(
+            "MCP_THREATINTEL_AUTH_TOKEN not set: HTTP transport runs WITHOUT "
+            "authentication. Set it to require a bearer token."
+        )
+        return None
+    logger.info("Bearer-token authentication enabled.")
+    return StaticTokenVerifier(
+        tokens={token: {"client_id": "threatintel", "scopes": []}}
+    )
+
+
+mcp = FastMCP("ThreatIntel", auth=_build_auth_provider())
 
 
 def _format(data: object) -> str:
@@ -93,8 +122,9 @@ async def lookup_ioc(indicator: str) -> str:
     Returns:
         JSON with all matches grouped by source. Empty matches if clean.
     """
-    matches = lookup_indicator(conn, indicator)
-    pulse_matches = lookup_indicator_in_pulses(conn, indicator)
+    with connect(DB_PATH) as conn:
+        matches = lookup_indicator(conn, indicator)
+        pulse_matches = lookup_indicator_in_pulses(conn, indicator)
 
     return _format({
         "indicator": indicator,
@@ -125,9 +155,10 @@ async def search_threats(
     Returns:
         JSON with matching IOCs, pulses, and vulnerabilities.
     """
-    iocs = search_iocs_fts(conn, query, source=source, days=days)
-    pulses = search_pulses_fts(conn, query)
-    vulns = search_vulns_fts(conn, query)
+    with connect(DB_PATH) as conn:
+        iocs = search_iocs_fts(conn, query, source=source, days=days)
+        pulses = search_pulses_fts(conn, query)
+        vulns = search_vulns_fts(conn, query)
 
     return _format({
         "query": query,
@@ -157,8 +188,9 @@ async def get_recent_threats(
         JSON with recent IOCs and summary stats.
     """
     hours = min(hours, 168)
-    iocs = get_recent_iocs(conn, source=source, hours=hours)
-    summary = get_recent_summary(conn, hours=hours)
+    with connect(DB_PATH) as conn:
+        iocs = get_recent_iocs(conn, source=source, hours=hours)
+        summary = get_recent_summary(conn, hours=hours)
 
     return _format({
         "hours": hours,
@@ -180,7 +212,8 @@ async def lookup_cve(cve_id: str) -> str:
         JSON with vulnerability details including vendor, product,
         description, remediation due date, and ransomware usage.
     """
-    vuln = db_lookup_cve(conn, cve_id)
+    with connect(DB_PATH) as conn:
+        vuln = db_lookup_cve(conn, cve_id)
     if vuln:
         return _format({"found": True, **_clean_row(vuln)})
     return _format({"found": False, "cve_id": cve_id, "message": "Not found in CISA KEV catalog"})
@@ -196,8 +229,9 @@ async def get_feed_status() -> str:
     Returns:
         JSON with per-source sync status and overall database stats.
     """
-    feeds = db_get_feed_status(conn)
-    stats = get_db_stats(conn)
+    with connect(DB_PATH) as conn:
+        feeds = db_get_feed_status(conn)
+        stats = get_db_stats(conn)
 
     return _format({
         "database_stats": stats,
@@ -227,7 +261,8 @@ async def search_pulses(
         JSON with matching pulses including name, author, description,
         and MITRE ATT&CK IDs.
     """
-    pulses = search_pulses_fts(conn, query, tags=tags)
+    with connect(DB_PATH) as conn:
+        pulses = search_pulses_fts(conn, query, tags=tags)
 
     return _format({
         "query": query,
@@ -368,7 +403,7 @@ async def get_latest_breach() -> str:
 # Entry point
 # ============================================================
 
-if __name__ == "__main__":
+def main() -> None:
     host = os.getenv("FASTMCP_HOST", os.getenv("MCP_HOST", "0.0.0.0"))
     port = int(os.getenv("FASTMCP_PORT", os.getenv("MCP_PORT", "3707")))
     # Pass host/port as kwargs (most explicit). Mirror into FASTMCP_*
@@ -377,3 +412,7 @@ if __name__ == "__main__":
     os.environ["FASTMCP_PORT"] = str(port)
     print(f"Starting MCP ThreatIntel on {host}:{port} (Streamable HTTP transport)")
     mcp.run(transport="streamable-http", host=host, port=port)
+
+
+if __name__ == "__main__":
+    main()
