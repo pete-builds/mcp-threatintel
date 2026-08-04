@@ -8,14 +8,20 @@ Reads from a local SQLite cache populated by poller.py, with live API
 fallback for LeakCheck (on-demand) and OTX (enrichment).
 """
 
-import json
 import logging
 import os
 import sys
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP
-from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
+from pete_mcp_core import (
+    build_auth_provider,
+    configure_logging,
+    format_response,
+    run_server,
+)
+from pete_mcp_core.settings import BaseCoreSettings
+from pydantic import AliasChoices, Field, SecretStr
 
 from mcp_threatintel.clients.ahmia import AhmiaClient
 from mcp_threatintel.clients.hibp import HibpClient
@@ -38,63 +44,71 @@ from mcp_threatintel.db import (
 
 load_dotenv()
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(name)s  %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
 
+class ThreatIntelSettings(BaseCoreSettings):
+    db_path: str = Field(
+        default="/data/threatintel.db",
+        validation_alias=AliasChoices("DB_PATH", "MCP_DB_PATH"),
+        description="Path to the SQLite cache populated by the poller.",
+    )
+    hibp_api_key: SecretStr | None = Field(
+        default=None, validation_alias=AliasChoices("HIBP_API_KEY", "MCP_HIBP_API_KEY")
+    )
+    leakcheck_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("LEAKCHECK_API_KEY", "MCP_LEAKCHECK_API_KEY"),
+    )
+    otx_api_key: SecretStr | None = Field(
+        default=None, validation_alias=AliasChoices("OTX_API_KEY", "MCP_OTX_API_KEY")
+    )
+    # Preserve backward compat for the legacy MCP_THREATINTEL_AUTH_TOKEN name.
+    threatintel_auth_token: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MCP_THREATINTEL_AUTH_TOKEN", "MCP_AUTH_TOKEN"
+        ),
+    )
+
+
+settings = ThreatIntelSettings()
+configure_logging(settings.log_level, settings.log_format)
 logger = logging.getLogger("threatintel.server")
 
-DB_PATH = os.getenv("DB_PATH", "/data/threatintel.db")
-
-if not os.path.exists(DB_PATH):
-    print(f"WARNING: Database not found at {DB_PATH}. Poller may not have run yet.", file=sys.stderr)
+if not os.path.exists(settings.db_path):
+    logger.warning(
+        "Database not found at %s. Poller may not have run yet.", settings.db_path
+    )
 
 # Create the schema once at startup, then close. Every tool call opens its own
 # short-lived connection via db.connect() so no sqlite3 connection is shared
 # across FastMCP's worker threads.
+DB_PATH = settings.db_path  # module-level alias kept for backward compatibility
 init_db(DB_PATH).close()
 
+
+def _secret(v: SecretStr | None) -> str:
+    return v.get_secret_value() if v else ""
+
+
 # Optional clients (may not have API keys)
-_leakcheck = None
-_otx = None
-_hibp = HibpClient(api_key=os.getenv("HIBP_API_KEY", ""))
+_leakcheck = LeakCheckClient(_secret(settings.leakcheck_api_key)) if settings.leakcheck_api_key else None
+_otx = OtxClient(_secret(settings.otx_api_key)) if settings.otx_api_key else None
+_hibp = HibpClient(api_key=_secret(settings.hibp_api_key))
 _ahmia = AhmiaClient()
 
-if os.getenv("LEAKCHECK_API_KEY"):
-    _leakcheck = LeakCheckClient(os.getenv("LEAKCHECK_API_KEY"))
-
-if os.getenv("OTX_API_KEY"):
-    _otx = OtxClient(os.getenv("OTX_API_KEY"))
-
-
-def _build_auth_provider() -> StaticTokenVerifier | None:
-    """Build an optional bearer-token auth provider, env-gated.
-
-    If ``MCP_THREATINTEL_AUTH_TOKEN`` is set, the HTTP transport requires that
-    token as a bearer credential. If unset, no auth is wired (the single-host
-    trusted-boundary default, and the only sane option for stdio). Generate a
-    token with ``openssl rand -hex 32``.
-    """
-    token = os.getenv("MCP_THREATINTEL_AUTH_TOKEN", "").strip()
-    if not token:
-        logger.warning(
-            "MCP_THREATINTEL_AUTH_TOKEN not set: HTTP transport runs WITHOUT "
-            "authentication. Set it to require a bearer token."
-        )
-        return None
-    logger.info("Bearer-token authentication enabled.")
-    return StaticTokenVerifier(
-        tokens={token: {"client_id": "threatintel", "scopes": []}}
-    )
+mcp = FastMCP(
+    "ThreatIntel",
+    auth=build_auth_provider(
+        settings.threatintel_auth_token,
+        client_id="threatintel",
+        required=settings.auth_required,
+        logger=logger,
+    ),
+)
 
 
-mcp = FastMCP("ThreatIntel", auth=_build_auth_provider())
-
-
-def _format(data: object) -> str:
-    return json.dumps(data, indent=2, default=str)
+# Alias so existing `_format(...)` call sites stay unchanged.
+_format = format_response
 
 
 def _clean_row(row: dict) -> dict:
@@ -404,14 +418,7 @@ async def get_latest_breach() -> str:
 # ============================================================
 
 def main() -> None:
-    host = os.getenv("FASTMCP_HOST", os.getenv("MCP_HOST", "0.0.0.0"))
-    port = int(os.getenv("FASTMCP_PORT", os.getenv("MCP_PORT", "3707")))
-    # Pass host/port as kwargs (most explicit). Mirror into FASTMCP_*
-    # env vars too in case any nested code path reads them directly.
-    os.environ["FASTMCP_HOST"] = host
-    os.environ["FASTMCP_PORT"] = str(port)
-    print(f"Starting MCP ThreatIntel on {host}:{port} (Streamable HTTP transport)")
-    mcp.run(transport="streamable-http", host=host, port=port)
+    run_server(mcp, default_port=3707, default_transport="streamable-http")
 
 
 if __name__ == "__main__":
