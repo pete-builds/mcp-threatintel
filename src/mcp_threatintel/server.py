@@ -10,7 +10,6 @@ fallback for LeakCheck (on-demand) and OTX (enrichment).
 
 import logging
 import os
-import sys
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP
