@@ -29,5 +29,69 @@ jobs:
       - name: Ruff lint
         run: ruff check .
 
+      # Guards the drift class that bit mcp-spotify: a pin edited in
+      # pyproject.toml but not regenerated into the lockfile, so the image keeps
+      # building the old dependency while the manifest claims the new one.
+      #
+      # Compiles into a copy of the repo that already contains requirements.lock,
+      # so uv treats the existing pins as preferences and only moves a version
+      # when a pyproject constraint actually forces it. This check therefore
+      # stays green when upstreams publish new releases, and goes red only on
+      # real drift.
+      - name: Verify requirements.lock matches pyproject.toml
+        run: |
+          set -euo pipefail
+          pip install uv
+          work=$(mktemp -d)
+          cp pyproject.toml README.md LICENSE requirements.lock "$work"/
+          (cd "$work" && uv pip compile pyproject.toml -o requirements.lock \
+            --generate-hashes --universal --python-version 3.13 --quiet)
+          diff -u requirements.lock "$work/requirements.lock" || {
+            echo "::error::requirements.lock is stale. Regenerate with: uv pip compile pyproject.toml -o requirements.lock --generate-hashes --universal --python-version 3.13"
+            exit 1
+          }
+
       - name: Run tests
         run: pytest -v
+
+  security-scan:
+    name: Trivy scan (filesystem + image)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build the same image the release workflow publishes, so the scan below
+      # sees what actually ships. Single-arch and loaded locally: this job
+      # gates the PR, it does not push anything.
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: mcp-threatintel:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Tags carry a leading "v". Versions below v0.35.0 are affected by the
+      # brief Trivy ecosystem supply chain compromise; do not pin back.
+      - name: Trivy filesystem scan (Dockerfile + manifests)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: mcp-threatintel:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
