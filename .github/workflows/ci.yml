@@ -41,7 +41,7 @@ jobs:
       - name: Verify requirements.lock matches pyproject.toml
         run: |
           set -euo pipefail
-          pip install uv
+          pip install uv==0.12.5
           work=$(mktemp -d)
           cp pyproject.toml README.md LICENSE requirements.lock "$work"/
           (cd "$work" && uv pip compile pyproject.toml -o requirements.lock \
