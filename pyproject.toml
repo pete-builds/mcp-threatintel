@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcp-threatintel"
-version = "0.2.0"
+version = "0.2.1"
 description = "MCP server for threat intelligence: IOC lookups, full-text threat search, CISA KEV CVE checks, AlienVault OTX pulses, HIBP/LeakCheck breach lookups, and Ahmia dark-web search over a local SQLite cache."
 readme = "README.md"
 license = { file = "LICENSE" }
