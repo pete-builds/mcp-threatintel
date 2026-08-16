@@ -2,7 +2,7 @@ services:
   mcp-threatintel:
     # Pull the published image by default. To build locally instead, comment
     # out `image:` and uncomment `build: .`. The poller below shares this image.
-    image: ghcr.io/pete-builds/mcp-threatintel:0.2.0
+    image: ghcr.io/pete-builds/mcp-threatintel:0.2.1
     # build: .
     container_name: mcp-threatintel
     restart: unless-stopped
@@ -22,7 +22,7 @@ services:
   threatintel-poller:
     # Shares the same published image as mcp-threatintel above (built once from
     # this repo). To build locally instead, comment out `image:` / uncomment `build: .`.
-    image: ghcr.io/pete-builds/mcp-threatintel:0.2.0
+    image: ghcr.io/pete-builds/mcp-threatintel:0.2.1
     # build: .
     container_name: threatintel-poller
     restart: unless-stopped
