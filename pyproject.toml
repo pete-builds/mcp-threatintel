@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcp-threatintel"
-version = "0.2.1"
+version = "0.3.0"
 description = "MCP server for threat intelligence: IOC lookups, full-text threat search, CISA KEV CVE checks, AlienVault OTX pulses, HIBP/LeakCheck breach lookups, and Ahmia dark-web search over a local SQLite cache."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -31,7 +31,7 @@ dependencies = [
     "python-dotenv>=1.1.0",
     # Pinned to an immutable commit tarball until pete-mcp-core is on PyPI.
     # Revert to "pete-mcp-core>=0.1.0" once it publishes.
-    "pete-mcp-core @ https://github.com/pete-builds/pete-mcp-core/archive/15d210625cfcf1840b6b6e95cf10990214585104.tar.gz",
+    "pete-mcp-core @ https://github.com/pete-builds/pete-mcp-core/archive/60cc81ece57358b775bcf0f01d356a6ea2995790.tar.gz",
 ]
 
 [project.optional-dependencies]
