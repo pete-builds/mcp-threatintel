@@ -47,7 +47,7 @@ jobs:
           (cd "$work" && uv pip compile pyproject.toml -o requirements.lock \
             --generate-hashes --universal --python-version 3.13 --quiet)
           diff -u requirements.lock "$work/requirements.lock" || {
-            echo "::error::requirements.lock is stale. Regenerate with: uv pip compile pyproject.toml -o requirements.lock --generate-hashes --universal --python-version 3.13"
+            echo "::error::requirements.lock is stale. Regenerate with: uv pip compile pyproject.toml -o requirements.lock --upgrade --generate-hashes --universal --python-version 3.13"
             exit 1
           }
 
