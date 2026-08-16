@@ -5,10 +5,24 @@ WORKDIR /build
 ENV PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Install the package (src layout) into an isolated prefix.
+# Dependencies come from the hash-pinned lockfile, so every transitive wheel
+# (including the pete-mcp-core commit tarball) is verified against a recorded
+# sha256 and an unexpected artifact fails the build instead of shipping.
+#
+# The lockfile is generated FROM pyproject.toml, which stays the only place a
+# version or a pin is edited by hand. Regenerate with:
+#   uv pip compile pyproject.toml -o requirements.lock \
+#     --generate-hashes --universal --python-version 3.13
+# CI fails the build if the lockfile has drifted from pyproject.toml.
+COPY requirements.lock ./
+RUN pip install --no-cache-dir --require-hashes --prefix=/install -r requirements.lock
+
+# Then the package itself (src layout), with --no-deps: the lockfile above
+# already provided the full dependency closure, and re-resolving here would
+# bypass the hashes.
 COPY pyproject.toml README.md LICENSE ./
 COPY src/ ./src/
-RUN pip install --no-cache-dir --prefix=/install .
+RUN pip install --no-cache-dir --no-deps --prefix=/install .
 
 FROM python:3.13-slim
 
