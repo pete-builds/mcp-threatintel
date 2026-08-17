@@ -72,3 +72,13 @@ include = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.ruff.lint]
+# PIN THE RULE SET, NOT JUST THE VERSION.
+# With no select here, the enabled rules are whatever ruff ships as its defaults,
+# so a version bump silently changes what CI enforces. Raising the ceiling to
+# 0.16 turned 29 previously-passing findings into errors with no code change.
+# These are ruff's 0.15-era defaults stated explicitly, so the lint surface is
+# now a property of this repo rather than of whichever ruff resolves. Adding
+# rules is a deliberate edit here, never a side effect of a bump.
+select = ["E4", "E7", "E9", "F"]
