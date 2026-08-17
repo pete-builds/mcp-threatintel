@@ -1,0 +1,42 @@
+name: lockfile-recompile
+
+# Thin caller. The implementation lives in pete-builds/fleet-workflows (composite action,
+# pinned below by full commit SHA), because fourteen byte-identical copies of the logic
+# were their own drift problem: automation was needed to keep the automation identical.
+#
+# WHAT STAYS IN THIS REPO, DELIBERATELY
+#   - The schedule. Thursday 20:00 UTC: late enough that Dependabot's 09:30 ET run and
+#     cypher's 2-hour merge cycle have landed the week's bumps on main.
+#   - The permissions. Every run uses THIS repo's built-in GITHUB_TOKEN; blast radius is
+#     one repository, same as the distributed version.
+#   - The uv pin. It must move together with the same pin in this repo's ci.yml, never
+#     one without the other, so it is stated here per repo rather than defaulted
+#     centrally, where a SHA bump could silently migrate every repo's resolver at once.
+#
+# HOW THE PINNED SHA UPDATES
+#   Dependabot bumps it when fleet-workflows tags a release. That lands as a normal
+#   workflow-file PR here, which the fleet's merge automation refuses to auto-merge, so
+#   a logic change still gets a per-repo human read.
+
+on:
+  schedule:
+    - cron: '0 20 * * 4'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: lockfile-recompile
+  cancel-in-progress: false
+
+jobs:
+  recompile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pete-builds/fleet-workflows/lockfile-recompile@47303e847995240aca7bd832c282cac38debf8b5 # v1.1.0
+        with:
+          uv-version: '0.12.5'   # bump together with this repo's ci.yml, never alone
+          github-token: ${{ secrets.GITHUB_TOKEN }}
