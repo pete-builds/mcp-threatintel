@@ -26,6 +26,18 @@ RUN pip install --no-cache-dir --no-deps --prefix=/install .
 
 FROM python:3.13-slim
 
+# Patch OS packages carried by the base image. The python:3.13-slim tag lags the Debian
+# security archive, so a scan flags CVEs that are already fixed upstream but that no
+# application or lockfile change can reach. Upgrading here pulls the patched packages in
+# at build time, and keeps doing so for future base-image CVEs.
+#
+# Currently clears CVE-2026-53615 (util-linux 2.41-5 -> 2.41.5-0+deb13u1). Trivy reports
+# it 9 times, once per util-linux binary package (bsdutils, libblkid1, libmount1, login,
+# and the rest), but it is a single source-package fix.
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1 \
