@@ -110,6 +110,47 @@ mcp = FastMCP(
 _format = format_response
 
 
+# --- Tool annotations ---
+# Twelve tools, all of them lookups, and not one writes anything a caller can
+# observe. That is worth DECLARING rather than leaving to be inferred: an
+# unannotated read-only server and an unannotated server full of delete tools
+# are indistinguishable in the manifest, so a client trying to be careful has
+# to be careful about everything, which in practice means being careful about
+# nothing.
+#
+# The open-world split is real and is exactly half. Six tools query the local
+# SQLite cache and never open a socket: lookup_ioc, search_threats,
+# get_recent_threats, lookup_cve, get_feed_status, search_pulses. The other six
+# call out to LeakCheck, Ahmia, or HIBP. Marking all twelve open-world would
+# have been the easy uniform answer and would have been wrong about half the
+# surface -- the cache is refreshed by a separate sync process, so the DATA
+# originates externally, but these tools do not go and get it.
+#
+# Read-only is not the same as private, and these hints do not claim it is.
+# check_password_breach sends the first five characters of a SHA-1 hash to
+# HIBP, which is a k-anonymity property documented on the tool itself and not
+# something an annotation can express. These hints describe EFFECTS on the
+# world, and the effect of every tool here is none.
+
+#: Reads only, over the network. Safe to repeat: an answer may differ between
+#: two identical calls because an upstream feed changed, not because the call
+#: changed it.
+READ_REMOTE = {
+    "readOnlyHint": True,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": True,
+}
+
+#: Reads only, from the local cache. Never opens a socket.
+READ_LOCAL = {
+    "readOnlyHint": True,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": False,
+}
+
+
 def _clean_row(row: dict) -> dict:
     """Remove raw_json from results to keep responses concise."""
     return {k: v for k, v in row.items() if k != "raw_json"}
@@ -120,7 +161,7 @@ def _clean_row(row: dict) -> dict:
 # ============================================================
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_LOCAL)
 async def lookup_ioc(indicator: str) -> str:
     """Check if an IP, domain, hash, or URL appears in any threat feed.
 
@@ -148,7 +189,7 @@ async def lookup_ioc(indicator: str) -> str:
     })
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_LOCAL)
 async def search_threats(
     query: str,
     source: str = "",
@@ -184,7 +225,7 @@ async def search_threats(
     })
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_LOCAL)
 async def get_recent_threats(
     source: str = "",
     hours: int = 24,
@@ -214,7 +255,7 @@ async def get_recent_threats(
     })
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_LOCAL)
 async def lookup_cve(cve_id: str) -> str:
     """Look up a CVE in the CISA Known Exploited Vulnerabilities catalog.
 
@@ -232,7 +273,7 @@ async def lookup_cve(cve_id: str) -> str:
     return _format({"found": False, "cve_id": cve_id, "message": "Not found in CISA KEV catalog"})
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_LOCAL)
 async def get_feed_status() -> str:
     """Show sync status for all threat intelligence feeds.
 
@@ -256,7 +297,7 @@ async def get_feed_status() -> str:
     })
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_LOCAL)
 async def search_pulses(
     query: str,
     tags: str = "",
@@ -285,7 +326,7 @@ async def search_pulses(
     })
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_REMOTE)
 async def check_breach(
     query: str,
     query_type: str = "auto",
@@ -313,7 +354,7 @@ async def check_breach(
     return _format(data)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_REMOTE)
 async def check_domain_breaches(domain: str) -> str:
     """Check all known breaches for a domain.
 
@@ -340,7 +381,7 @@ async def check_domain_breaches(domain: str) -> str:
 # ============================================================
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_REMOTE)
 async def search_darkweb(query: str, max_results: int = 20) -> str:
     """Search the dark web via Ahmia.fi (.onion site index).
 
@@ -364,7 +405,7 @@ async def search_darkweb(query: str, max_results: int = 20) -> str:
 # ============================================================
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_REMOTE)
 async def check_password_breach(password: str) -> str:
     """Check if a password has been exposed in any known data breach.
 
@@ -382,7 +423,7 @@ async def check_password_breach(password: str) -> str:
     return _format(data)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_REMOTE)
 async def check_email_breaches(email: str) -> str:
     """Check if an email has been in any known data breaches via HIBP.
 
@@ -399,7 +440,7 @@ async def check_email_breaches(email: str) -> str:
     return _format(data)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_REMOTE)
 async def get_latest_breach() -> str:
     """Get the most recently added breach from Have I Been Pwned.
 
