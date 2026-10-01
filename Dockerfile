@@ -34,9 +34,15 @@ FROM python:3.13-slim
 # Currently clears CVE-2026-53615 (util-linux 2.41-5 -> 2.41.5-0+deb13u1). Trivy reports
 # it 9 times, once per util-linux binary package (bsdutils, libblkid1, libmount1, login,
 # and the rest), but it is a single source-package fix.
+#
+# The ADD busts the build cache whenever Debian publishes a security update. A RUN layer
+# is keyed only on its command string, which never changes, so with `cache-from:
+# type=gha` CI would otherwise replay the first day's upgrade forever and miss every
+# later fix. buildkit keys ADD on the remote file's content, not its URL.
+ADD https://deb.debian.org/debian-security/dists/trixie-security/Release /tmp/debian-security-release
 RUN apt-get update \
     && apt-get upgrade -y \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /tmp/debian-security-release /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -64,6 +70,10 @@ RUN python -m pip uninstall -y pip \
     && rm -rf /usr/local/lib/python3.*/site-packages/pip \
               /usr/local/lib/python3.*/site-packages/pip-*.dist-info \
               /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.*
+
+# FastMCP 4 phones PyPI on every start (GET https://pypi.org/pypi/fastmcp/json)
+# to print an update notice in the banner. Nothing in the container acts on it.
+ENV FASTMCP_CHECK_FOR_UPDATES=off
 
 USER mcp
 
