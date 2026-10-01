@@ -11,11 +11,13 @@ fallback for LeakCheck (on-demand) and OTX (enrichment).
 import logging
 import os
 
+import fastmcp
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 from pete_mcp_core import (
     build_auth_provider,
     configure_logging,
+    enable_session_reaper,
     format_response,
     run_server,
 )
@@ -457,7 +459,28 @@ async def get_latest_breach() -> str:
 # Entry point
 # ============================================================
 
+def apply_session_idle_timeout() -> float | None:
+    """Give streamable-http sessions an idle timeout FastMCP 4 will honor.
+
+    pete-mcp-core's reaper patches the SDK session manager to supply a timeout
+    only when the caller passes none. FastMCP 4 always passes one: explicitly
+    None, from its own ``http_session_idle_timeout`` setting. The reaper reads
+    that as a deliberate choice and stands down, so without this, sessions are
+    never reaped. Measured: FastMCP 3.4.7 handed the manager 1800s, FastMCP
+    4.0.10 hands it None.
+
+    FastMCP 4 exposes the setting natively, so feed it the value the reaper
+    resolves (``MCP_SESSION_IDLE_TIMEOUT``, default 1800, ``off`` disables).
+    An explicit ``FASTMCP_HTTP_SESSION_IDLE_TIMEOUT`` still wins.
+    """
+    timeout = enable_session_reaper()
+    if timeout is not None and fastmcp.settings.http_session_idle_timeout is None:
+        fastmcp.settings.http_session_idle_timeout = timeout
+    return fastmcp.settings.http_session_idle_timeout
+
+
 def main() -> None:
+    apply_session_idle_timeout()
     run_server(mcp, default_port=3707, default_transport="streamable-http")
 
 
