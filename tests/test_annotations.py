@@ -53,20 +53,20 @@ def test_every_tool_is_annotated(tools):
 
 def test_every_tool_is_read_only(tools):
     """A write tool added later fails here first, which is the point."""
-    assert sorted(n for n, t in tools.items() if not t.annotations.readOnlyHint) == []
+    assert sorted(n for n, t in tools.items() if not t.annotations.read_only_hint) == []
 
 
 def test_nothing_claims_to_be_destructive(tools):
-    assert sorted(n for n, t in tools.items() if t.annotations.destructiveHint) == []
+    assert sorted(n for n, t in tools.items() if t.annotations.destructive_hint) == []
 
 
 def test_cache_backed_tools_do_not_claim_an_open_world(tools):
-    wrong = sorted(n for n in LOCAL if tools[n].annotations.openWorldHint is not False)
+    wrong = sorted(n for n in LOCAL if tools[n].annotations.open_world_hint is not False)
     assert wrong == []
 
 
 def test_feed_backed_tools_do(tools):
-    wrong = sorted(n for n in REMOTE if tools[n].annotations.openWorldHint is not True)
+    wrong = sorted(n for n in REMOTE if tools[n].annotations.open_world_hint is not True)
     assert wrong == []
 
 
@@ -75,5 +75,5 @@ def test_the_split_is_not_collapsed_one_way(tools):
 
     Both directions must be non-empty, or the split is decorative.
     """
-    open_world = {n for n, t in tools.items() if t.annotations.openWorldHint}
+    open_world = {n for n, t in tools.items() if t.annotations.open_world_hint}
     assert open_world and open_world != set(tools)

@@ -25,7 +25,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "fastmcp>=3.4.0",
+    "fastmcp>=4.0.10,<5",
     "httpx>=0.28.1",
     "uvicorn>=0.49.0",
     "python-dotenv>=1.1.0",
@@ -72,6 +72,10 @@ include = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# MCP SDK v2 renamed protocol fields to snake_case and FastMCP 4 keeps the old
+# camelCase reads alive through a deprecation bridge slated for removal. Fail
+# on the warning now, so the bridge's removal can never be the first notice.
+filterwarnings = ["error::fastmcp.FastMCPDeprecationWarning"]
 
 [tool.ruff.lint]
 # PIN THE RULE SET, NOT JUST THE VERSION.
