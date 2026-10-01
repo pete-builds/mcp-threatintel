@@ -56,3 +56,15 @@ def test_env_override_is_honored(unset, monkeypatch):
 def test_control_without_the_fix_sessions_never_expire(unset):
     """Positive control: proves the assertions above can fail."""
     assert _manager_timeout() is None
+
+
+def test_main_applies_it_before_serving(unset, monkeypatch):
+    """The entry point, not just the helper: a dropped call in main() fails here."""
+    seen = {}
+
+    def fake_run_server(mcp, **kwargs):
+        seen["timeout"] = fastmcp.settings.http_session_idle_timeout
+
+    monkeypatch.setattr(server, "run_server", fake_run_server)
+    server.main()
+    assert seen == {"timeout": 1800}
