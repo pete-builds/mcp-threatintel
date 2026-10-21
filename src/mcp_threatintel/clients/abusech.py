@@ -109,8 +109,12 @@ class ThreatFoxClient(BaseClient):
                 "indicator": i.get("ioc"),
                 "type": _threatfox_type(i.get("ioc_type", "")),
                 "source": "threatfox",
-                "first_seen": i.get("first_seen_utc"),
-                "last_seen": i.get("last_seen_utc") or i.get("first_seen_utc"),
+                # The get_iocs API sends "first_seen"/"last_seen" (for example
+                # "2020-12-08 13:36:27 UTC", last_seen often null). The *_utc
+                # names are kept only as a fallback. upsert_ioc normalises the
+                # format and falls back to first_seen when last_seen is null.
+                "first_seen": i.get("first_seen") or i.get("first_seen_utc"),
+                "last_seen": i.get("last_seen") or i.get("last_seen_utc"),
                 "tags": ",".join(i.get("tags", []) or []),
                 "confidence": i.get("confidence_level"),
                 "malware_family": i.get("malware", ""),

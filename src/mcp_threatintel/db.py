@@ -4,6 +4,7 @@ Handles schema initialization, WAL mode, and provides upsert/query helpers
 for IOCs, OTX pulses, CISA vulnerabilities, and feed sync tracking.
 """
 
+import ast
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -27,6 +28,7 @@ def init_db(path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(path)
     _configure(conn)
     conn.executescript(SCHEMA)
+    migrate_ioc_timestamps(conn)
     return conn
 
 
@@ -147,7 +149,17 @@ CREATE TABLE IF NOT EXISTS feed_sync (
 
 
 def upsert_ioc(conn: sqlite3.Connection, **kwargs) -> bool:
-    """Insert or update an IOC. Returns True if a new row was inserted."""
+    """Insert or update an IOC. Returns True if a new row was inserted.
+
+    ``first_seen`` and ``last_seen`` are normalised to one UTC ISO-8601 shape
+    (see :func:`normalize_ts`) so the time-window filters compare like with
+    like. A missing ``last_seen`` falls back to ``first_seen``: feeds such as
+    ThreatFox and MalwareBazaar send ``last_seen: null`` for indicators seen
+    once, and a NULL ``last_seen`` would hide the row from every window.
+    """
+    kwargs = dict(kwargs)
+    kwargs["first_seen"] = normalize_ts(kwargs.get("first_seen"))
+    kwargs["last_seen"] = normalize_ts(kwargs.get("last_seen")) or kwargs["first_seen"]
     conn.execute(
         """INSERT INTO iocs (indicator, type, source, first_seen, last_seen,
            tags, confidence, malware_family, threat_type, raw_json)
@@ -254,6 +266,9 @@ def lookup_indicator_in_pulses(conn: sqlite3.Connection, indicator: str) -> list
 
 def search_iocs_fts(conn: sqlite3.Connection, query: str, source: str = "", days: int = 30) -> list[dict]:
     """Full-text search across IOCs."""
+    query = fts_query(query)
+    if not query:
+        return []
     cutoff = _days_ago(days)
     if source:
         rows = conn.execute(
@@ -278,6 +293,9 @@ def search_iocs_fts(conn: sqlite3.Connection, query: str, source: str = "", days
 
 def search_pulses_fts(conn: sqlite3.Connection, query: str, tags: str = "") -> list[dict]:
     """Full-text search across OTX pulses."""
+    query = fts_query(query)
+    if not query:
+        return []
     rows = conn.execute(
         """SELECT p.* FROM pulses p
            JOIN pulses_fts f ON p.rowid = f.rowid
@@ -298,6 +316,9 @@ def search_pulses_fts(conn: sqlite3.Connection, query: str, tags: str = "") -> l
 
 def search_vulns_fts(conn: sqlite3.Connection, query: str) -> list[dict]:
     """Full-text search across CISA KEV vulnerabilities."""
+    query = fts_query(query)
+    if not query:
+        return []
     rows = conn.execute(
         """SELECT v.* FROM vulnerabilities v
            JOIN vulns_fts f ON v.rowid = f.rowid
@@ -362,13 +383,111 @@ def get_db_stats(conn: sqlite3.Connection) -> dict:
 # --- Helpers ---
 
 
+def fts_query(text: str) -> str:
+    """Turn free text into a safe FTS5 MATCH expression.
+
+    FTS5 gives ``-``, ``.``, ``:``, ``?``, ``"``, ``*`` and ``^`` their own
+    meaning, so a raw CVE id, IP, domain or question is a syntax error (or a
+    column filter). Each whitespace-separated token becomes a quoted phrase
+    with embedded double quotes doubled, which FTS5 treats purely as text;
+    the phrases are ANDed, the FTS5 default. Returns "" when there is nothing
+    to search for.
+    """
+    tokens = (text or "").split()
+    return " ".join('"' + t.replace('"', '""') + '"' for t in tokens)
+
+
+def normalize_ts(value) -> str | None:
+    """Normalise a feed timestamp to ``YYYY-MM-DDTHH:MM:SS+00:00`` (UTC).
+
+    Accepts the shapes the feeds send: ``2026-09-06 23:30:00 UTC`` (abuse.ch),
+    ``2026-09-06 23:30:00`` (naive, read as UTC), a bare date (Feodo), and
+    ISO-8601 with ``T``, ``Z`` or an offset. Empty input returns None; an
+    unparseable value is returned unchanged rather than discarded.
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    candidate = text
+    if candidate.upper().endswith(" UTC"):
+        candidate = candidate[:-4].strip()
+    elif candidate.endswith(("Z", "z")):
+        candidate = candidate[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(candidate)
+    except ValueError:
+        return text
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).isoformat(timespec="seconds")
+
+
+# Raw-feed keys that may hold an IOC's timestamps, in preference order.
+_RAW_FIRST_KEYS = ("first_seen", "first_seen_utc", "date_added")
+_RAW_LAST_KEYS = ("last_seen", "last_seen_utc", "last_online")
+_CANONICAL_TS = "____-__-__T__:__:__+00:00"
+
+
+def _from_raw(raw: str | None, keys: tuple[str, ...]):
+    if not raw:
+        return None
+    try:
+        data = ast.literal_eval(raw)
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    for key in keys:
+        if data.get(key):
+            return data[key]
+    return None
+
+
+def migrate_ioc_timestamps(conn: sqlite3.Connection, batch: int = 2000) -> int:
+    """Bring IOC rows written by older versions onto the normalised timestamps.
+
+    Older builds stored feed timestamps verbatim (mixed formats) and read
+    ThreatFox's timestamps from keys the API does not send, leaving both
+    columns NULL. This rewrites any row whose ``first_seen``/``last_seen`` is
+    NULL or not in canonical form, recovering missing values from
+    ``raw_json`` where possible. Idempotent: a converted row no longer
+    matches the selection. Commits in batches to keep write locks short.
+    Returns the number of rows changed.
+    """
+    rows = conn.execute(
+        """SELECT id, first_seen, last_seen, raw_json FROM iocs
+           WHERE last_seen IS NULL OR last_seen NOT LIKE ?
+              OR (first_seen IS NOT NULL AND first_seen NOT LIKE ?)""",
+        (_CANONICAL_TS, _CANONICAL_TS),
+    ).fetchall()
+    changed = 0
+    for row in rows:
+        first = row["first_seen"] or _from_raw(row["raw_json"], _RAW_FIRST_KEYS)
+        last = row["last_seen"] or _from_raw(row["raw_json"], _RAW_LAST_KEYS)
+        new_first = normalize_ts(first)
+        new_last = normalize_ts(last) or new_first
+        if (new_first, new_last) == (row["first_seen"], row["last_seen"]):
+            continue
+        conn.execute(
+            "UPDATE iocs SET first_seen = ?, last_seen = ? WHERE id = ?",
+            (new_first, new_last, row["id"]),
+        )
+        changed += 1
+        if changed % batch == 0:
+            conn.commit()
+    conn.commit()
+    return changed
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
 def _days_ago(days: int) -> str:
-    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
 
 
 def _hours_ago(hours: int) -> str:
-    return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec="seconds")
