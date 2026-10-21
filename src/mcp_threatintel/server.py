@@ -391,6 +391,10 @@ async def search_darkweb(query: str, max_results: int = 20) -> str:
     .onion URLs, titles, and descriptions. You cannot visit these
     URLs without Tor, but the metadata is valuable for research.
 
+    If Ahmia cannot be searched, the result has "available": false and an
+    "error" explaining why. That means no search happened; it is not an
+    empty result. Only "result_count": 0 means Ahmia found no matches.
+
     Args:
         query: Search terms (e.g. "TeamPCP", "litellm credentials").
         max_results: Maximum results to return (default: 20).
