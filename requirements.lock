@@ -392,8 +392,8 @@ pathable==0.6.0 \
     --hash=sha256:6404b8b82aef5ff0fd478934137128b99b12212ba35afdde5525ca4f8388ea58 \
     --hash=sha256:82c4ca6c98c502ad12e0d4e9779b6210afee93c38990988c8c5d1b49bdcdf566
     # via jsonschema-path
-pete-mcp-core @ https://github.com/pete-builds/pete-mcp-core/archive/60cc81ece57358b775bcf0f01d356a6ea2995790.tar.gz \
-    --hash=sha256:9fa85be58a671151db06602e7671f3ae1b3cd4d2c7f4a1019ea6c4d0fbef4e43
+pete-mcp-core @ https://github.com/pete-builds/pete-mcp-core/archive/18f22618723b38493fb20039083c68f014cafb2e.tar.gz \
+    --hash=sha256:f5d9f52b9acc91d2354c11deb657f95afeb124709954b0b929c2b5cce71596c0
     # via mcp-threatintel (pyproject.toml)
 platformdirs==4.14.5 \
     --hash=sha256:32e9921db7385aa8169bee4fe9501923e5715ba9fb7ea3b9c69b0d8e0639f7a1 \

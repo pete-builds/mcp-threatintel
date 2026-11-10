@@ -31,6 +31,10 @@ import pytest
 
 MODULE = "mcp_threatintel.server"
 LAN_HOST = "192.168.86.20:3707"
+#: HTTP refuses to start without a bearer token, so the listener under test
+#: gets a fake one and every request presents it. What an unauthenticated
+#: request gets is pinned in test_auth_required.py.
+TOKEN = "test-token-not-a-secret"
 
 INITIALIZE = json.dumps(
     {
@@ -73,8 +77,8 @@ def _serve(extra_env: dict[str, str] | None = None) -> Iterator[int]:
     env = {
         k: v
         for k, v in os.environ.items()
-        # Bind host, transport and auth come from the server's own defaults,
-        # never from whatever the calling shell happens to export.
+        # Bind host and transport come from the server's own defaults, and the
+        # token from this file, never from whatever the calling shell exports.
         if k not in {"FASTMCP_HOST", "MCP_HOST", "MCP_TRANSPORT", "MCP_THREATINTEL_AUTH_TOKEN"}
         and not k.startswith(("FASTMCP_HTTP_", "MCP_AUTH"))
     }
@@ -84,6 +88,7 @@ def _serve(extra_env: dict[str, str] | None = None) -> Iterator[int]:
             "FASTMCP_PORT": str(port),
             "FASTMCP_CHECK_FOR_UPDATES": "off",
             "FASTMCP_SHOW_SERVER_BANNER": "false",
+            "MCP_AUTH_TOKEN": TOKEN,
         }
     )
     env.update(extra_env or {})
@@ -125,6 +130,7 @@ def _initialize(connect_to: str, port: int, host_header: str) -> int:
             body=INITIALIZE,
             headers={
                 "Host": host_header,
+                "Authorization": f"Bearer {TOKEN}",
                 "Content-Type": "application/json",
                 "Accept": "application/json, text/event-stream",
             },
