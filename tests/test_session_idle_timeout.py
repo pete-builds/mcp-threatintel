@@ -19,6 +19,7 @@ import tempfile
 
 import fastmcp
 import pytest
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
 os.environ.setdefault("DB_PATH", os.path.join(tempfile.gettempdir(), "mcp_threatintel_test.db"))
 
@@ -31,7 +32,10 @@ def _manager_timeout() -> float | None:
     async def read() -> float | None:
         async with app.router.lifespan_context(app):
             (route,) = [r for r in app.routes if getattr(r, "path", None) == "/mcp"]
-            return route.endpoint.session_manager.session_idle_timeout
+            # With auth on, which is the only way HTTP runs, the transport app
+            # sits behind RequireAuthMiddleware, one ``.app`` down.
+            endpoint = getattr(route.endpoint, "app", route.endpoint)
+            return endpoint.session_manager.session_idle_timeout
 
     return asyncio.run(read())
 
@@ -40,6 +44,14 @@ def _manager_timeout() -> float | None:
 def unset(monkeypatch):
     monkeypatch.delenv("MCP_SESSION_IDLE_TIMEOUT", raising=False)
     monkeypatch.setattr(fastmcp.settings, "http_session_idle_timeout", None)
+    # The reaper patches the SDK class once per process and, from pete-mcp-core
+    # 18f2261 on, the first call decides: later calls return what it installed
+    # rather than reading the environment again. Start every test from the
+    # unpatched class, or the result depends on which test ran first.
+    current = StreamableHTTPSessionManager.__init__
+    monkeypatch.setattr(
+        StreamableHTTPSessionManager, "__init__", getattr(current, "__wrapped__", current)
+    )
 
 
 def test_sessions_get_the_default_idle_timeout(unset):

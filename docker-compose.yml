@@ -8,6 +8,11 @@ services:
     restart: unless-stopped
     ports:
       - "${FASTMCP_PORT:-3707}:3707"
+    # .env must define MCP_AUTH_TOKEN. The server refuses to serve HTTP without
+    # a bearer token: with it missing or blank this container exits at startup
+    # and, under the restart policy above, keeps restarting until it is set.
+    # The token lives in .env on the host (chmod 600), never in this file and
+    # never in git. See "Authentication" in the README.
     env_file:
       - .env
     environment:
@@ -26,6 +31,8 @@ services:
     # build: .
     container_name: threatintel-poller
     restart: unless-stopped
+    # The poller needs no bearer token. It serves nothing and never reads
+    # MCP_AUTH_TOKEN: it shares .env only for the feed API keys and DB_PATH.
     env_file:
       - .env
     environment:

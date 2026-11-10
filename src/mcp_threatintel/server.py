@@ -62,7 +62,9 @@ class ThreatIntelSettings(BaseCoreSettings):
     otx_api_key: SecretStr | None = Field(
         default=None, validation_alias=AliasChoices("OTX_API_KEY", "MCP_OTX_API_KEY")
     )
-    # Preserve backward compat for the legacy MCP_THREATINTEL_AUTH_TOKEN name.
+    # The bearer token every HTTP client must present. MCP_AUTH_TOKEN is the
+    # canonical name. MCP_THREATINTEL_AUTH_TOKEN is the legacy name, still
+    # accepted, and it is the one that wins when both are set.
     threatintel_auth_token: SecretStr | None = Field(
         default=None,
         validation_alias=AliasChoices(
@@ -97,12 +99,35 @@ _otx = OtxClient(_secret(settings.otx_api_key)) if settings.otx_api_key else Non
 _hibp = HibpClient(api_key=_secret(settings.hibp_api_key))
 _ahmia = AhmiaClient()
 
+#: What main() serves when MCP_TRANSPORT is unset. The container sets nothing,
+#: so this is what a deployment runs.
+DEFAULT_TRANSPORT = "streamable-http"
+
+
+def _serves_http() -> bool:
+    """True unless MCP_TRANSPORT selects stdio, read the way run_server reads it.
+
+    ``settings.transport`` is deliberately not the source: BaseCoreSettings
+    defaults it to stdio while this entry point defaults to streamable-http, so
+    with MCP_TRANSPORT unset the two disagree and the setting would describe a
+    transport this server is not serving. Anything other than an explicit
+    ``stdio`` counts as HTTP, so a typo cannot switch the token requirement off.
+    """
+    return os.getenv("MCP_TRANSPORT", DEFAULT_TRANSPORT).strip().lower() != "stdio"
+
+
 mcp = FastMCP(
     "ThreatIntel",
     auth=build_auth_provider(
         settings.threatintel_auth_token,
         client_id="threatintel",
-        required=settings.auth_required,
+        # HTTP needs a bearer token. With none set this raises AuthRequiredError
+        # while the module loads, so the process exits before it binds a port.
+        # stdio is a local pipe with no network surface and needs no token.
+        #
+        # MCP_AUTH_REQUIRED=false does not open HTTP: it only skips this raise,
+        # and run_server() then refuses streamable-http with no auth provider.
+        required=settings.auth_required and _serves_http(),
         logger=logger,
     ),
 )
@@ -485,7 +510,9 @@ def apply_session_idle_timeout() -> float | None:
 
 def main() -> None:
     apply_session_idle_timeout()
-    run_server(mcp, default_port=3707, default_transport="streamable-http")
+    # No allow_unauthenticated here, on purpose: run_server() refuses to serve
+    # HTTP with no auth provider, and that refusal is the second lock.
+    run_server(mcp, default_port=3707, default_transport=DEFAULT_TRANSPORT)
 
 
 if __name__ == "__main__":

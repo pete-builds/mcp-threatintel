@@ -75,7 +75,16 @@ cd mcp-threatintel
 cp .env.example .env
 ```
 
-Edit `.env` and add your API keys. Only `ABUSECH_API_KEY` is required. All others are optional.
+Edit `.env` and add your API keys. Of the feed keys, only `ABUSECH_API_KEY` is required. All others are optional.
+
+Then generate the bearer token the server requires and put it in `.env` as `MCP_AUTH_TOKEN`:
+
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+chmod 600 .env
+```
+
+The server will not start over HTTP without it. See [Authentication](#authentication).
 
 ### 2. Start the stack
 
@@ -84,33 +93,73 @@ docker compose up -d
 ```
 
 This starts two containers:
-- `mcp-threatintel`: the MCP server on port 3707
-- `threatintel-poller`: background feed sync (runs every hour)
+- `mcp-threatintel`: the MCP server on port 3707. Needs `MCP_AUTH_TOKEN`.
+- `threatintel-poller`: background feed sync (runs every hour). Needs no token.
 
 The poller will do an initial sync on first start. Give it a minute before the tools have data.
 
 ### 3. Connect to Claude Code
 
-Register the MCP server with the Claude CLI:
+Register the MCP server with the Claude CLI, sending the token as a bearer header:
 
 ```bash
-claude mcp add threatintel --transport http --scope user --url http://localhost:3707/mcp
+claude mcp add --transport http --scope user threatintel http://localhost:3707/mcp \
+  --header "Authorization: Bearer <your token>"
 ```
 
-Or add to your Claude Code `settings.json`:
+Or add it to your MCP client configuration:
 
 ```json
 {
   "mcpServers": {
     "threatintel": {
       "type": "http",
-      "url": "http://localhost:3707/mcp"
+      "url": "http://localhost:3707/mcp",
+      "headers": {
+        "Authorization": "Bearer <your token>"
+      }
     }
   }
 }
 ```
 
-Restart Claude Code. The 12 tools will show up as `mcp__threatintel__*`.
+Restart Claude Code. The 12 tools will show up as `mcp__threatintel__*`. A client that sends no header, or the wrong token, gets `401 Unauthorized` and no tools.
+
+---
+
+## Authentication
+
+**A bearer token is required for the HTTP transport.** There is no unauthenticated mode: with no token the server exits at startup instead of listening.
+
+| | |
+|---|---|
+| Variable | `MCP_AUTH_TOKEN` |
+| Generate | `python3 -c "import secrets; print(secrets.token_urlsafe(32))"` |
+| Where it goes | `.env` on the host, mode 600 (`chmod 600 .env`). Never in `docker-compose.yml`, never in git. |
+| What clients send | `Authorization: Bearer <token>` on every request to `/mcp` |
+
+What to expect:
+
+- **No token, or a blank one.** The server logs `Bearer token required for client 'threatintel' but not provided` and exits non-zero before it binds the port. Under `restart: unless-stopped` the container restarts in a loop until the token is set. `.env.example` ships `MCP_AUTH_TOKEN=` blank on purpose, so a copied example refuses to start rather than run with a token everyone knows.
+- **`MCP_AUTH_REQUIRED=false` does not open the HTTP port.** The server then exits with `Refusing to start streamable-http with no auth provider`.
+- **`MCP_THREATINTEL_AUTH_TOKEN`** is the older name for the same token. It is still accepted, and it wins when both names are set. Set one of them, not both. `MCP_AUTH_TOKEN` is the canonical name.
+- **The container healthcheck needs no token.** It probes a path outside `/mcp` and stays healthy with auth on.
+- **The poller needs no token.** It serves nothing and never reads the variable.
+- **Rotating the token:** change it in `.env`, run `docker compose up -d` to recreate the server container, then update the header in every client.
+
+### Upgrading from 0.3.0 or earlier
+
+Earlier versions ran without a token unless you set one. Before you pull 0.4.0 or later, add `MCP_AUTH_TOKEN` to `.env` on the host and add the `Authorization` header to every client. If the token is missing when the new image starts, the server container will not come up.
+
+### stdio for local development
+
+stdio is a local pipe with no network surface, so it needs no token:
+
+```bash
+MCP_TRANSPORT=stdio DB_PATH=./threatintel.db mcp-threatintel
+```
+
+`MCP_TRANSPORT=stdio` is the only setting required. Without it the server defaults to HTTP and asks for the token.
 
 ---
 
@@ -133,7 +182,7 @@ LEAKCHECK_API_KEY # $10/mo at https://leakcheck.io/
 ## Notes
 
 - `docker-compose.yml` uses `network_mode: host`. The MCP server binds to `0.0.0.0:3707`. If you're running this on a server (not just localhost), add a firewall rule to restrict access.
-- Optional bearer-token auth: set `MCP_THREATINTEL_AUTH_TOKEN` (generate with `openssl rand -hex 32`) and every HTTP client must send `Authorization: Bearer <token>`. Unset = no auth (single-host trusted-boundary default).
+- A bearer token is required for HTTP. See [Authentication](#authentication). The token is one layer, not the only one: keep the firewall rule too.
 - The SQLite database is stored in a named Docker volume (`threatintel-data`). It persists across container restarts.
 - LeakCheck results redact most of the exposed password value. Only the first and last two characters are shown.
 - HIBP password checks use k-anonymity: only the first 5 characters of the SHA-1 hash are sent to the API. The full password never leaves the machine.
